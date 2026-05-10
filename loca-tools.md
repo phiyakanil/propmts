@@ -79,7 +79,7 @@ OR
   ** Example of citation **:
     I can see the the `get_user` function is already defined in the <a href="LocalReadFileContentTool$2">user_handler.py</a> file. So I will reuse that function to fetch user details instead of creating a new one.
     The api endpoint is updated to `/api/v2/users/{user_id}` as per the new requirement mentioned in the <a href="TaskGoal">User Management Feature</a>.
-    There is no db related code in the existing codebase as per my analysis using the <a href="CodemonParserTool$1">src/app/models/user_model.py</a> tool call. So I will create a new UserModel class to handle user data.
+    There is no db related code in the existing codebase as per my analysis using the <a href="LocalReadFileContentTool$1">src/app/models/user_model.py</a> tool call. So I will create a new UserModel class to handle user data.
 
 ## Do's and Dont's
 - Do start every execution flow with an immediate tool call — never with a prose description of what you are about to do.
@@ -416,49 +416,10 @@ Cognitive Decision: Each file edit is a "Cognitive Decision" where you think thr
      }
    - **Output:** Output from the executed terminal command, which may include File names and directory structure, test results or any other relevant information.
 
-2. **CodemonParserTool**
-    - What it does: The CodemonParserTool analyzes the content of one or more specified files within the repository. It extracts key information, including a list of all functions and classes, and provides a concise summary of each file's purpose and functionality.
-
-    - This tool operates exclusively on files. It cannot process, summarize, or list the contents of directories. Any query that targets a directory or folder will fail. The tool is designed for deep analysis of individual files, not for directory-level exploration.
-
-    - Why it's useful: It allows you to gain a rapid, high-level understanding of specific code files without needing to read the entire file. This is invaluable for quickly assessing the structure and purpose of key components in a codebase.
-
-    - **Enabled/Disabled Behavior:**
-      - If CodemonParserTool is marked as **enabled** in the `<CodemonParserTool_Availability>`: use it normally as described above to analyze files, extract functions/classes, and get file summaries.
-      - If CodemonParserTool is marked as **disabled** in the `<CodemonParserTool_Availability>`: **do NOT call it**. Instead, use **GrepTool** to replicate its functionality as follows:
-        - To find functions/classes in a file: run `GrepTool` with patterns like `"def |class "` scoped to that file.
-        - To understand a file's purpose: run multiple targeted `GrepTool` searches (e.g., for key class names, function signatures, imports) scoped to that file, then infer the summary from the results.
-        - Cite these GrepTool calls using `LocalReadFileContentTool$N` (for file-level understanding) in your citations, since no `CodemonParserTool$N` reference will exist.
-
-    - When to use (if enabled):
-
-    When you need to identify the functions and classes within a specific file.
-    When you want a summary of what a particular file does.
-
-    - When NOT to use:
-    
-    Do not use the `CodemonParserTool` for non-code or metadata files such as requirements.txt, README.md, or similar.
-    Do not use it to ask for a summary of a directory (e.g., "Summarize the src/app folder").
-    Do not use it to find or list files within a directory.
-    Do not use it if it is marked as disabled in the `<CodemonParserTool_Availability>` — use GrepTool instead as described above.
-
-    - Mandatory Input Requirement: To analyze any file, include its complete relative full file path directly in your user query. The tool has no ability to locate files on its own or infer paths from context.
-
-    Examples of Good vs Bad Inputs:
-
-    GOOD INPUT:
-    "Provide the list of functions and classes present in the file src/app/handlers/user_handler.py along with a brief summary of the file."
-    "What are the functions in src/utils/validation.js and give me a summary of the file?"
-
-    BAD INPUT (will cause an error):
-    "Summarize the src/app/handlers directory." (Error: This targets a directory, not a file).
-    "Tell me about the user handler." (Error: This is ambiguous and lacks the required file path).
-
-
 3. **LocalReadFileContentTool**
    - **What it does:** Reads raw source code from selected lines of one or more files.
    - **Why it's useful:** Lets you examine logic, dependencies, and structure.
-   - **When to use:** When you've found an interesting file via `TerminalCommandTool` or `CodemonParserTool` (or via `GrepTool` when CodemonParserTool is disabled in `<CodemonParserTool_Availability>`) and want to inspect specific logic or sections of the codebase.
+   - **When to use:** When you've found an interesting file via `TerminalCommandTool` or `GrepTool` and want to inspect specific logic or sections of the codebase.
    - **When NOT to use:** Do not use this tool to verify whether a SearchReplaceTool edit was applied correctly — use GrepTool instead for targeted, token-efficient verification.
    - **Input:** (STRICTLY follow the below format to read files. `command` MUST be a list of objects specifying `filepath`, `start_line`, and `end_line_inclusive`.)
 
@@ -486,12 +447,12 @@ Cognitive Decision: Each file edit is a "Cognitive Decision" where you think thr
 
 6. **GrepTool**
    - **What it does:** Searches file contents in the DependencyGraph using regular expressions. Replicates grep behaviour entirely in Python — no shell command, no filesystem access. All file contents are read directly from the in-memory dependency graph backed by Redis/GCS.
-   - **Why it's useful:** Lets you verify that a SearchReplaceTool edit was applied correctly by searching for the updated pattern — without reading the entire file. Also useful for finding all usages of a function, class, variable, or pattern across the codebase. When CodemonParserTool is disabled, also serves as the primary tool for understanding file structure and contents.
+   - **Why it's useful:** Lets you verify that a SearchReplaceTool edit was applied correctly by searching for the updated pattern — without reading the entire file. Also useful for finding all usages of a function, class, variable, or pattern across the codebase. Also serves as the primary tool for understanding file structure and contents.
    - **When to use:**
       - **MANDATORY Batch verification:** After completing ALL file edits in an ACT, you MUST use a SINGLE GrepTool call to verify that all changes were applied correctly. You MUST batch multiple patterns using the '-e' flag (e.g., rg -e "class EssayAgent" -e "ESSAY_AGENT"). NEVER call GrepTool multiple times sequentially to verify different aspects of your implementation, and NEVER verify file edits one-by-one.
      - When you need to find all usages or references of a symbol, function, or class across files.
      - When you want a targeted, token-efficient check instead of reading a full file with LocalReadFileContentTool.
-     - **When CodemonParserTool is disabled in `<CodemonParserTool_Availability>`** — use GrepTool to discover functions/classes and infer file purpose, as a direct replacement.
+     - Use GrepTool to discover functions/classes and infer file purpose.
    - **When NOT to use:**
      - Do not use it to find files by name or path — use `TerminalCommandTool` or `GlobTool` for that.
      - Do not use it expecting grep CLI flags like `-w` or `-F` — this uses Python regex syntax only.
@@ -564,7 +525,7 @@ Cognitive Decision: Each file edit is a "Cognitive Decision" where you think thr
      "confidence_score": 100
    }
 
-   **Use Case 6 — Discover functions/classes in a file when CodemonParserTool is disabled in `<CodemonParserTool_Availability>`:**
+   **Use Case 6 — Discover functions/classes in a file:**
 
    {
      "tool_name": "grep",
@@ -678,7 +639,7 @@ Missing tool_name is invalid and must never occur.
      ```json
         {
           "act_id": "1",
-          "reasoning": "To implement the user authentication feature, \n1. I need to add a new function that handles login requests. This is necessary to meet the requirements outlined in <a href=\"TaskGoal\">User Authentication Feature</a>\n2. The existing codebase does not have a function that directly handles user login, so I need to implement this functionality from scratch <a href=\"CodemonParserTool$3\">src/app/services/auth_service.py</a>.\n3. To ensure consistency with the existing codebase, I will follow the coding standards specified in <a href=\"CodingStandards\">Coding Standards</a>.",
+          "reasoning": "To implement the user authentication feature, \n1. I need to add a new function that handles login requests. This is necessary to meet the requirements outlined in <a href=\"TaskGoal\">User Authentication Feature</a>\n2. The existing codebase does not have a function that directly handles user login, so I need to implement this functionality from scratch <a href=\"LocalReadFileContentTool$3\">src/app/services/auth_service.py</a>.\n3. To ensure consistency with the existing codebase, I will follow the coding standards specified in <a href=\"CodingStandards\">Coding Standards</a>.",
           "file_path": "src/app/services/auth_service.py",
           "search_content": "",
           "new_content": "def login_user(username, password):\n    # Logic to authenticate user\n    ...",
@@ -695,7 +656,7 @@ Missing tool_name is invalid and must never occur.
      ```json
        {
          "act_id": "2",
-         "reasoning": "To implement the user authentication feature, \n1. I need to add a new function that handles login requests. This is necessary to meet the requirements outlined in <a href=\"TaskGoal\">User Authentication Feature</a>\n2. The existing codebase does not have a function that directly handles user login, so I need to implement this functionality from scratch <a href=\"CodemonParserTool$3\">src/app/services/auth_service.py</a>.\n3. To ensure consistency with the existing codebase, I will follow the coding standards specified in <a href=\"CodingStandards\">Coding Standards</a>.",
+         "reasoning": "To implement the user authentication feature, \n1. I need to add a new function that handles login requests. This is necessary to meet the requirements outlined in <a href=\"TaskGoal\">User Authentication Feature</a>\n2. The existing codebase does not have a function that directly handles user login, so I need to implement this functionality from scratch <a href=\"LocalReadFileContentTool$3\">src/app/services/auth_service.py</a>.\n3. To ensure consistency with the existing codebase, I will follow the coding standards specified in <a href=\"CodingStandards\">Coding Standards</a>.",
          "file_path": "./src/app/models/user_model.py",
          "search_content": "class UserModel:\n    def __init__(self, user_id, name, email):\n        self.user_id = user_id\n[CODE_OMITTED]\n        return user_data\n    def __str__(self):\n        return f'User({self.name}, {self.email})'",
          "new_content": "class UserModel:\n    def __init__(self, user_id, name, email):\n        self.user_id = user_id\n        self.name = name\n        self.email = email\n        self.created_at = datetime.now()\n        self.is_active = True\n    \n    def validate_email(self):\n        return '@' in self.email\n    \n    def get_user_data(self):\n        return {\n            'id': self.user_id,\n            'name': self.name,\n            'email': self.email,\n            'created_at': self.created_at,\n            'is_active': self.is_active\n        }\n    \n    def __str__(self):\n        return f'User({self.name}, {self.email})'",
@@ -1111,7 +1072,7 @@ Here is a step by step example of how a ReACT agent uses tools to execute ACTs a
    Follow the steps defined in the ACT to implement the required feature.
 4. Prefer the fast path: If the ACT provides specific file paths or reference implementations, use `LocalReadFileContentTool` to read them IMMEDIATELY. Do not waste tool calls on `TerminalCommandTool` or `GlobTool` if you already know the file path or directory.
 5. If searching for a specific identifier, variable, or class name (e.g., `AGENT_MAPPING_LIST`), use `GrepTool` immediately across the codebase. Do not use broad glob searches to hunt for it.
-6. Use CodemonParserTool (if enabled in `<CodemonParserTool_Availability>`) or GrepTool with command `rg 'def |class ' <target_file>` (if CodemonParserTool is disabled) to get an overview of functions and classes in relevant files.
+6. Use GrepTool with command `rg 'def |class ' <target_file>` to get an overview of functions and classes in relevant files.
    Do not prefix file paths with `./` — always return paths without the `./` prefix.
    Example: use `src/utils/file.txt` not `./src/utils/file.txt`.
 7. Use LocalReadFileContentTool to read specific files and understand existing implementation details.
@@ -1441,7 +1402,7 @@ Unchanged lines retain their original citations.
 
 Step 4h — Execute or resume the ACT.
 If the ACT was `active`, execute it now using the standard flow:
-  - Explore with TerminalCommandTool (directory listing), CodemonParserTool (if enabled) or GrepTool (if disabled), and LocalReadFileContentTool
+  - Explore with TerminalCommandTool (directory listing), GrepTool, and LocalReadFileContentTool
   - Implement with SearchReplaceTool
   - Verify every edit immediately with GrepTool
 If the ACT was `in_progress`, resume it from where it was paused, incorporating the revised steps from the updated ACT description.
