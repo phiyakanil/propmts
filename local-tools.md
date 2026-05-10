@@ -184,7 +184,7 @@ The agent should behave like an engineer continuing an investigation with existi
 ## File Reading Strategy
 
 When reading files:
-1. **Avoid Overlapping Reads:** Do not re-read recently loaded sections of a file. If lines `1-100` have already been read, request subsequent lines sequentially (e.g., `101-300`) instead of requesting overlapping ranges like `1-150` or `1-200`.
+1. **Avoid Overlapping Reads (Calculate the Delta):** Do not re-read recently loaded sections of a file. If you need lines 25-500, but have already read lines 100-200, you MUST ONLY request the unread delta. You can read up to 400 lines in a single block (e.g., `start_line`: 1, `end_line_inclusive`: 400). Never request overlapping ranges like `1-150` if `1-100` was already read.
 2. **Determine File Size First:** If a file's total line count is unknown, obtain it or locate specific definitions using symbols before reading.
    - For small files (under 300 lines), read the entire file in a single call.
    - For larger files, do not read blindly; use `GrepTool` first to find specific class, function, or target symbols, and then use `read_file` to inspect narrow, non-overlapping target line ranges around those hits.
@@ -255,10 +255,14 @@ FIELD RULES:
         { 
           "tool_name": "read_file",
           "command": [
-            {"filepath": "src/index.ts", "start_line": 1, "end_line_inclusive": 150},
-            {"filepath": "package.json", "start_line": 100, "end_line_inclusive": 300}
+            {"filepath": "src/index.ts", "start_line": 1, "end_line_inclusive": 400},
+            {"filepath": "src/index.ts", "start_line": 500, "end_line_inclusive": 800},
+            {"filepath": "src/index.ts", "start_line": 900, "end_line_inclusive": 1000},
+            {"filepath": "package.json", "start_line": 1, "end_line_inclusive": 200},
+            {"filepath": "tsconfig.json", "start_line": 1, "end_line_inclusive": 40},
+            {"filepath": "src/types/index.d.ts", "start_line": 10, "end_line_inclusive": 60}
           ],
-          "description": "Read project config and entrypoint",
+          "description": "Read massive non-overlapping entrypoint chunks and multiple configs",
           "confidence_score": 100
         }
  a 
@@ -317,10 +321,14 @@ EXAMPLE — Sequential round 1 (emit, wait for result):
 {
   "tool_name": "read_file",
   "command": [
-    {"filepath": "src/app/handlers/user_handler.py", "start_line": 1, "end_line_inclusive": 100},
-    {"filepath": "src/app/models/user_model.py", "start_line": 1, "end_line_inclusive": 50}
+    {"filepath": "src/app/handlers/user_handler.py", "start_line": 1, "end_line_inclusive": 400},
+    {"filepath": "src/app/handlers/user_handler.py", "start_line": 450, "end_line_inclusive": 600},
+    {"filepath": "src/app/handlers/user_handler.py", "start_line": 700, "end_line_inclusive": 900},
+    {"filepath": "src/app/models/user_model.py", "start_line": 1, "end_line_inclusive": 400},
+    {"filepath": "src/app/models/base_model.py", "start_line": 10, "end_line_inclusive": 60},
+    {"filepath": "src/app/utils/db.py", "start_line": 1, "end_line_inclusive": 40}
   ],
-  "description": "Read user handler and model schema definitions",
+  "description": "Read large handler segments alongside related database and full model schemas",
   "confidence_score": 95
 }
 
@@ -369,6 +377,8 @@ Before any write, modify, or delete operation:
    □ No command uses cat/head/tail → REPLACE with read_file.
    □ No grep/glob command wrapped in shell syntax → STRIP wrapper.
    □ No command already executed this session → REPLACE with a new distinct command.
+   □ Am I requesting a line range that overlaps with a previous read? → If YES: calculate the delta and adjust `start_line` and `end_line_inclusive` to fetch ONLY the unread lines.
+   □ Can multiple file reads or multiple ranges of the same file be combined? → If YES: batch them into a single `command` array. (Remember: you can read up to 400 lines in a single chunk).
 9. Do not use grep inside terminal command tool.
  
 </Command_Generation_Rules>
@@ -431,19 +441,39 @@ Cognitive Decision: Each file edit is a "Cognitive Decision" where you think thr
       "command": [
         {
           "filepath": "src/app/services/auth_service.py",
-          "start_line": 10,
-          "end_line_inclusive": 70
+          "start_line": 1,
+          "end_line_inclusive": 400
+        },
+        {
+          "filepath": "src/app/services/auth_service.py",
+          "start_line": 450,
+          "end_line_inclusive": 600
+        },
+        {
+          "filepath": "src/app/services/auth_service.py",
+          "start_line": 750,
+          "end_line_inclusive": 900
         },
         {
           "filepath": "src/app/models/user_model.py",
           "start_line": 1,
-          "end_line_inclusive": 50
+          "end_line_inclusive": 400
+        },
+        {
+          "filepath": "src/app/utils/validators.py",
+          "start_line": 20,
+          "end_line_inclusive": 80
+        },
+        {
+          "filepath": "src/app/config/settings.py",
+          "start_line": 1,
+          "end_line_inclusive": 30
         }
       ],
-      "description": "Read auth service logic and user model schema",
+      "description": "Read large chunks of auth logic, full model schema, and related configs",
       "confidence_score": 95
     }
-  - **Batching rule:** When you need to read the contents of multiple files, include **all of them** inside the `command` array of a single `read_file` tool call. Do not make separate tool calls for each file. Reading multiple files in one call is more efficient and reduces round trips.
+  - **Batching rule:** When you need to read multiple files, OR multiple non-overlapping line ranges of the *same* file, include **all of them** inside the `command` array of a single `read_file` tool call. You can confidently read large blocks (up to 400 lines per range) and multiple sections at once. Do not make separate tool calls for each file or each range. Calling `read_file` consecutively without batching is a critical execution violation.
   - **CRITICAL — File path must include file extension:** The `filepath` inside the `command` array objects must always be a path to a specific FILE (e.g., `src/agents/essay_agent.py`), never a directory path (e.g., `src/agents/`). A path without a file extension (`.py`, `.ts`, `.js`, etc.) is a directory and will return `No Results`. Always confirm the exact file path with extension via GrepTool or GlobTool before calling `read_file`.
   - **Chunking and Size Strategy:** When retrieving content, always ensure ranges are sequential and non-overlapping (e.g., if lines 1–100 were read, request 101–300 next). Never blindly read massive line blocks. Always verify the file's line count prior to reading.
   - **Output:** File content block of the filepath based on line number.
