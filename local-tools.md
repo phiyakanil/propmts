@@ -188,6 +188,7 @@ When reading files:
 2. **Determine File Size First:** If a file's total line count is unknown, obtain it or locate specific definitions using symbols before reading.
    - For small files (under 300 lines), read the entire file in a single call.
    - For larger files, do not read blindly; use `GrepTool` first to find specific class, function, or target symbols, and then use `read_file` to inspect narrow, non-overlapping target line ranges around those hits.
+   - When the directory contents and file sizes are both unknown, use `list_files_tool` first — it returns both file paths and line counts in one call, eliminating the need for a separate size-discovery step before planning reads.
 3. **Exclude Hidden & Special Files:** Never attempt to read configuration lockfiles, system files, or hidden directory contents unless explicitly instructed.
 4. Keep all file reads highly focused, sequential, and token-efficient.
 
@@ -275,11 +276,18 @@ FIELD RULES:
       Assign when: the command is anything other than grep, glob, or a file read, minimize the use of this tool.
       Examples: find ./src -maxdepth 2 -type f \( -name "*.ts" \) -exec wc -l {} +,  git log --oneline -10,  npm list --depth=0,
                 docker ps,  mkdir -p src/utils,  git status
+    "list_files_tool"
+      Assign when: you need to discover files in a directory AND get their line counts simultaneously,
+      especially before planning a read strategy for unknown or large files.
+      The command value must be a JSON-stringified object: "{\"directory\": \"<path>\"}".
+      Do not use this to read file contents — only for path and line count discovery.
+      Examples: "{\"directory\": \"src/services\"}", "{\"directory\": \"src/utils\"}"
 
  SELF-CHECK before every emission — ask:
     "Am I reading a known file's contents?"  → tool_name: "read_file", command: [{"filepath": "<path>", "start_line": 1, "end_line_inclusive": 100}]
     "Am I searching with rg?"        → tool_name: "grep"
     "Am I discovering files by pattern?"     → tool_name: "glob"
+    "Do I need file paths AND line counts from a directory?"  → tool_name: "list_files_tool", command: "{\"directory\": \"<path>\"}"
     "Is it anything else?"                   → tool_name: "terminal_command"
     "Does any command use cat, head, tail, less, more, sed -n, awk, Get-Content, or type?"
                                              → REPLACE with tool_name: "read_file"
@@ -292,7 +300,8 @@ FIELD RULES:
     rg --files -g "*.config.*"     → tool_name: "glob"              
     rg -rn "TODO" src/             → tool_name: "grep"              
     [{"filepath": "src/auth/login.service.ts", ...}] → tool_name: "read_file"        
-    [{"filepath": "package.json", ...}]              → tool_name: "read_file"         
+    [{"filepath": "package.json", ...}]              → tool_name: "read_file"  
+    {"directory": "src/services"}  (line count discovery)  → tool_name: "list_files_tool"       
 
 "description":
   - Type: string.
@@ -328,7 +337,7 @@ EXAMPLE — Sequential round 1 (emit, wait for result):
     {"filepath": "src/app/models/base_model.py", "start_line": 10, "end_line_inclusive": 60},
     {"filepath": "src/app/utils/db.py", "start_line": 1, "end_line_inclusive": 40}
   ],
-  "description": "Read large handler segments alongside related database and full model schemas",
+  "description": "Read user handler and model schema definitions",
   "confidence_score": 95
 }
 
@@ -359,7 +368,8 @@ Before any write, modify, or delete operation:
 1.1. TOOL PRIORITY ORDER (MANDATORY — evaluate in this order before choosing terminal_command):
    - FIRST: Use `grep` (rg) if you need to SEARCH FOR CONTENT or PATTERNS inside files.
    - SECOND: Use `glob` (rg --files or find) if you need to DISCOVER FILES by name or extension.
-   - THIRD: Use `read_file` if you know the EXACT file path and need its contents.
+   - THIRD: Use `list_files_tool` if you need to DISCOVER FILES in a directory AND know their line counts before reading — this is the preferred tool when read strategy planning is needed.
+   - FOURTH: Use `read_file` if you know the EXACT file path and need its contents.
    - LAST RESORT: Use `terminal_command` (ls, pwd, find, etc.) ONLY when grep and glob cannot satisfy the need.
    - NEVER use `terminal_command` to search file contents — that is always grep.
    - NEVER use `terminal_command` to discover files by pattern — that is always glob.
@@ -478,6 +488,49 @@ Cognitive Decision: Each file edit is a "Cognitive Decision" where you think thr
   - **Chunking and Size Strategy:** When retrieving content, always ensure ranges are sequential and non-overlapping (e.g., if lines 1–100 were read, request 101–300 next). Never blindly read massive line blocks. Always verify the file's line count prior to reading.
   - **Output:** File content block of the filepath based on line number.
 
+
+4. **ListFilesTool**
+   - **What it does:** Lists files in one or more directories along with their exact line counts, returning structured output that tells you how large each file is before you read it.
+   - **Why it's useful:** Lets you make informed decisions about reading strategy — whether to read a file in one pass or split it into multiple sequential chunks — without blindly over-fetching or re-reading.
+   - **When to use:**
+     - Before reading any file whose size is unknown.
+     - When the ACT provides a directory path but not specific file paths — use this to discover what's inside and plan reads.
+     - When you need line counts for multiple files at once to decide chunking strategy.
+     - As a lightweight alternative to `TerminalCommandTool` for file discovery with line counts.
+   - **When NOT to use:**
+     - Do not use this to read file contents — it only returns file paths and line counts.
+     - Do not use this if exact file paths and their sizes are already known from prior tool output or ACT context.
+     - Do not use this to search inside file contents — use `GrepTool` for that.
+   - **Reading strategy after calling this tool (MANDATORY):**
+     - **Single file, ≤ 300 lines:** Read the entire file in one `read_file` call.
+     - **Single file, > 300 lines:** Split into sequential, non-overlapping chunks (e.g., 1–300, 301–600). Never request overlapping ranges.
+     - **Multiple files:** Batch all files whose contents are needed into a single `read_file` call using multiple objects in the `command` array. Do not make separate `read_file` calls per file.
+     - **Last file in a large batch:** If it exceeds 300 lines, read it in multiple sequential iterations in the same or subsequent `read_file` call, never re-reading already-fetched ranges.
+   - **Input:**
+```json
+     {
+       "tool_name": "list_files_tool",
+       "command": "{\"directory\": \"src/services\"}",
+       "description": "List files and line counts in src/services",
+       "confidence_score": 95
+     }
+```
+     - `command` — A JSON-stringified object with a `"directory"` key pointing to the target path. Always use relative paths from project root.
+     - To list multiple directories, make separate `list_files_tool` calls or pass the closest common parent directory.
+   - **Output:** A structured result per directory containing each file's path and line count, in this format:
+```json
+     [
+       {
+         "directory": "src/services",
+         "command_output": "src/services/index.ts (88 lines)\nsrc/services/git.ts (210 lines)"
+       },
+       {
+         "directory": "src/utils",
+         "command_output": "src/utils/relative-git-path.ts (42 lines)\nsrc/utils/generic-ellm-response-gen.ts (156 lines)"
+       }
+     ]
+```
+     Parse `command_output` by splitting on newlines. Each line is `<filepath> (<N> lines)`. Extract `N` to determine read chunking.
 
 6. **GrepTool**
    - **What it does:** Searches file contents in the DependencyGraph using regular expressions. Replicates grep behaviour entirely in Python — no shell command, no filesystem access. All file contents are read directly from the in-memory dependency graph backed by Redis/GCS.
