@@ -15,7 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_TARGET_FILE = 'local-tools.md';
+const DEFAULT_TARGET_FILE = 'cwa-prompt.md';
 const DEFAULT_REPLACEMENTS_FILE = 'search_replace.json';
 
 const [, , replacementsArg, targetArg] = process.argv;
