@@ -1,8 +1,6 @@
-
 [
   {
-    "search": "   - **When NOT to use:**\n      - NEVER use this tool to verify whether a SearchReplaceTool edit was applied correctly — use GrepTool instead for targeted, token-efficient verification.",
-    "replace": "   - **When NOT to use:** Do not use this tool to verify whether a SearchReplaceTool edit was applied correctly — use GrepTool instead for targeted, token-efficient verification. Also, do not use it to read files one at a time if multiple related file reads can be batched together.",
-    "comment": "Surgically captures the multi-line sub-bullet structure in the raw source file and compresses it into the updated layout."
+    "search": "    - `reasoning`: Thought process of why these changes are necessary. This should be brief, concise in pointwise markdown format (STRICTLY only 1 point, no exceptions. maximum 2 points only when exceptipnally required in rare cases) and should reflect your internal thought process. Follow citation guidelines to have citation for your reasoning. Citations are MANDATORY.",
+    "replace": "    - `reasoning`: Thought process of why these changes are necessary. This should be brief, concise in pointwise markdown format (STRICTLY only 1 point, no exceptions. maximum 2 points only when exceptionally required in rare cases) and should reflect your internal thought process. Follow citation guidelines to have citation for your reasoning. Citations are MANDATORY."
   }
 ]
