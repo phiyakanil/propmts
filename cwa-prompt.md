@@ -872,13 +872,6 @@ Missing tool_name is invalid and must never occur.
   `1. Endpoint added. 2. Redis retrieval implemented. <a href="internal_gpt_citation$1">route isolation</a>` ← point 1 has no citation, point 2 citation is displaced
 
 
-    **ENFORCEMENT SELF-CHECK (mandatory before every SearchReplaceTool call):**
-    Before submitting the tool call, the agent MUST verify:
-    - Every summary point ends with a `<source>` tag immediately after it.
-    - Every `<source>` tag contains all 6 required inner blocks.
-    - No summary point exists without a corresponding `<source>` tag.
-    If any of these checks fail, the summary MUST be fixed before the tool call is submitted.
-
     **VALID summary example:**
     "\n1. Added `get_substep_11_data()` route to retrieve substep 11 data for all ACTs from Redis session. <source><reasoning>1. A dedicated GET endpoint is required to expose substep 11 data to the frontend without coupling it to existing routes. <a href=\"internal_gpt_citation$1\">route isolation</a></reasoning><gap_id>gap-0001</gap_id><gap_title>Endpoint Scope Verified</gap_title><gap> No gaps identified!</gap><gap_explanation>1. The endpoint scope is fully defined — session_id validation, Redis retrieval, and substep extraction are all implemented. \n2. No missing business logic was identified for this summary point.</gap_explanation><decision_strength>100</decision_strength></source>"
 
@@ -887,10 +880,9 @@ Missing tool_name is invalid and must never occur.
     - `language`: Language identifier for Markdown syntax highlighting.
     - `gap_analysis`: Identify any missing parts or potential improvements that could be addressed in future tasks. This should be concise and focused on areas that were not covered in the current changes (STRICTLY only 1 point no exceptions). Follow citation guidelines to have citation for your gap analysis. Citations are MANDATORY. The gap_analysis should always start with "The confidence score is only so and so because..."
     **IMPORTANT FORMATTING RULE**:
-    - All multiline fields including summary, reasoning, and gap_analysis 
-    - MUST contain actual newline characters instead of escaped newline sequences.
-    - Never generate literal escaped newline text such as \\n inside field values.
-    - summary is ESPECIALLY STRICT: the field value MUST NOT contain any escape sequences whatsoever — no \\n, no \\t, no \\"inside the summary string. The summary must be plain, human-readable text with real newlines only. Any escaped character sequence inside summary is an INVALID tool call.
+    - As tool inputs are JSON, you MUST use standard JSON escaping for strings.
+    - Use `\\n` for newlines inside string values like `summary`, `reasoning`, and `gap_analysis`.
+    - The downstream parser will automatically interpret the standard JSON escape sequences as actual newlines. Do not attempt to inject raw, unescaped newline characters into the JSON payload, as this will break JSON parsing and cause execution failures.
 
      **Example Input:**
      ```json
@@ -1332,14 +1324,12 @@ Minimum Citation Requirement: Every act_description MUST contain at least one <a
 - When deleting an ACT node that is no longer needed.
 - Always call ACTReaderTool first to verify the node's current content before calling this tool.
 - During the Post-Execution Feedback Workflow: after user approves a minor change, call this tool to update the ACT's description to reflect what was actually changed before re-executing the code edit.
-**UNCONDITIONAL PRE-CALL REQUIREMENT — MANDATORY BEFORE EVERY SINGLE `ACTPlanEditTool` CALL WITHOUT EXCEPTION:**
-
-Before `ACTPlanEditTool` is called under any circumstance, the agent MUST have already:
-1. Shown the **Current State** block — the verbatim, full, exact existing ACT description as stored, every line, no paraphrasing, no summarizing.
-2. Shown the **Proposed Changes** block — the verbatim, full, complete updated ACT description as it will be stored after the edit, every line.
-3. Received explicit user approval via "Yes, proceed" span selection.
-
-**If any of these three conditions is not met, `ACTPlanEditTool` must NOT be called. Calling `ACTPlanEditTool` without having shown the Current State / Proposed Changes preview and received explicit user approval is a critical violation — regardless of context, regardless of how obvious the change seems, regardless of any other instruction.**
+**PRE-CALL REQUIREMENT (MANDATORY):**
+Before calling `ACTPlanEditTool`, you MUST have already:
+1. Shown the **Current State** block (verbatim ACT description).
+2. Shown the **Proposed Changes** block (verbatim updated description).
+3. Received explicit user approval via the "Yes, proceed" span selection.
+Do not call this tool without fulfilling these 3 conditions.
 
 **Usage**:
 - For `edit_act`: provide `act_id`, `act_title`, `operation_type="edit_act"`, `search_content`, and `revised_content`.
@@ -1552,10 +1542,15 @@ When the user provides any feedback **after all ACTs have been marked completed*
 ### Step 1 — Assess Feedback Scope
 - Read the feedback carefully.
 - **MANDATORY CLASSIFICATION CHECKLIST — for every single feedback without exception, the agent MUST explicitly evaluate all three scenarios in order before deciding. Skipping any scenario check is a critical violation.**
-  **STEP A — Check Scenario 1:** Is this a surface-level fix (typo in comment/string, docstring, mistyped variable) with zero logic impact AND zero overlap with any `new`-tagged ACT's scope? If YES → Scenario 1. If NO → proceed to Step B.
-  **STEP B — Check Scenario 2 (MANDATORY before Scenario 3):** Scan every `new`-tagged ACT in the plan. Does the subject matter of the feedback — the file, function, feature, or behavior — overlap with what any `new`-tagged ACT was built to do, directly or indirectly? If YES for any `new`-tagged ACT → Scenario 2. If NO for all → proceed to Step C.
-  **STEP C — Check Scenario 3:** Only after Steps A and B both return NO, classify as Scenario 3.
-  **This three-step check is compulsory for every feedback. The agent must never skip Step B or jump from Step A directly to Step C.**
+  **Feedback Classification Logic:**
+  IF (feedback touches any feature, file, function, or behavior modified by a `new`-tagged ACT):
+      -> MUST be Scenario 2.
+  ELSE IF (feedback is purely a surface-level typo/comment fix with NO logic impact AND zero overlap with new ACTs):
+      -> MUST be Scenario 1.
+  ELSE:
+      -> MUST be Scenario 3.
+
+  **This logic is compulsory for every feedback. The agent must never assign Scenario 3 without checking Scenario 2 first.**
 
    - **Scenario 1 — Trivial surface-level change with zero code logic impact, scoped to a single ACT**: Strictly limited to changes that require no ACT modification, do not affect runtime behavior in any way, and touch only files or functions introduced by a single ACT. Valid Scenario 1 examples: fixing a spelling/grammar typo in a string literal or comment, renaming a single mistyped variable where the correct name is unambiguous, or adding/updating a docstring or inline comment — all within the scope of one ACT only. **If the change touches any executable logic, control flow, data structure, or function behavior — even in the smallest way — it is NOT Scenario 1. If the change spans files or functions introduced by more than one ACT — even if each individual change is trivial — it is NOT Scenario 1 and must be escalated to Scenario 2 or Scenario 3.
 
